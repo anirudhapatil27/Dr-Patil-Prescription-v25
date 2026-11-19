@@ -337,6 +337,20 @@ jobs:
           print('All existing V25 digital PDF routes now generate a PDF and open Android share/save options.')
           PY
 
+
+      - name: Copy injected V25 web assets into Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx cap copy android
+          WEB=android/app/src/main/assets/public
+          test -s "$WEB/index.html"
+          test -s "$WEB/html2pdf.bundle.min.js"
+          grep -q 'id="dr-patil-pdf-generator-v2"' "$WEB/index.html"
+          grep -q 'PDF diagnostic 1/3: JavaScript loaded' "$WEB/index.html"
+          grep -q 'window.AndroidPrint.sharePdf(base64' "$WEB/index.html"
+          echo 'Verified: injected V25 PDF JavaScript and html2pdf library copied into Android assets.'
+
       - name: Verify source preservation and JavaScript syntax
         shell: bash
         run: |
@@ -465,6 +479,45 @@ jobs:
           "$APKSIGNER" verify "$APK"
           echo 'APK package ID and signature verified.'
           ls -lh "$APK"
+
+
+      - name: Verify PDF integration inside the final APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          apk=Path('android/app/build/outputs/apk/debug/app-debug.apk')
+          if not apk.is_file() or apk.stat().st_size == 0:
+              raise SystemExit('Final APK is missing or empty')
+          with ZipFile(apk) as z:
+              names=set(z.namelist())
+              html_path='assets/public/index.html'
+              lib_path='assets/public/html2pdf.bundle.min.js'
+              if html_path not in names:
+                  raise SystemExit('APK is missing packaged assets/public/index.html')
+              if lib_path not in names:
+                  raise SystemExit('APK is missing packaged html2pdf.bundle.min.js')
+              html=z.read(html_path).decode('utf-8')
+              required=[
+                  'id="dr-patil-pdf-generator-v2"',
+                  'PDF diagnostic 1/3: JavaScript loaded',
+                  'DR_PATIL_PDF_BRIDGE_READY_V2',
+                  'window.AndroidPrint.sharePdf(base64',
+                  'window.AndroidPrint.print()'
+              ]
+              missing=[item for item in required if item not in html]
+              if missing:
+                  raise SystemExit('APK packaged HTML is missing PDF integration markers: '+', '.join(missing))
+              library=z.read(lib_path)
+              if len(library) < 100000:
+                  raise SystemExit('Packaged html2pdf library is unexpectedly small')
+              print('FINAL APK CONTENT VERIFICATION PASSED')
+              print('Packaged HTML bytes:',len(html.encode('utf-8')))
+              print('Packaged html2pdf library bytes:',len(library))
+              print('PDF JavaScript and Android bridge calls are present in the actual APK.')
+          PY
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
