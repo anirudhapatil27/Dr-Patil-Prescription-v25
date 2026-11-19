@@ -432,7 +432,7 @@ jobs:
           SERVER_PID=$!
           trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
           sleep 2
-          node /tmp/drpatil-pdf-smoke.cjs
+          NODE_PATH="$GITHUB_WORKSPACE/node_modules" node /tmp/drpatil-pdf-smoke.cjs
 
       - name: Verify native PDF bridge configuration
         shell: bash
